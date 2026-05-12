@@ -114,6 +114,14 @@ def test_record_transform_with_custom_fields(running_app, csv_rdm_record):
         {"description": "methods", "type": {"id": "methods"}, "lang": {"id": "eng"}},
         {"description": "notes", "type": {"id": "notes"}},
     ]
+    assert metadata["rights"] == [
+        {"id": "cc0-1.0", "description": {"en": "Public domain dedication"}},
+        {
+            "title": {"en": "New license"},
+            "description": {"en": "A free-form rationale"},
+        },
+        {"id": "cc0-4.0"},
+    ]
     assert metadata["subjects"] == [
         {"subject": "custom"},
         {"id": "http://id.nlm.nih.gov/mesh/A-D000007", "subject": "Abdominal Injuries"},
