@@ -203,9 +203,7 @@ class MetadataSchema(BaseModel):
     contributors: list[Contributor] = Field(default_factory=list)
     dates: list[Date] = Field(default_factory=list)
     subjects: list[dict[str, str]] = Field(default_factory=list)
-    references: list[dict[str, str]] = Field(
-        default_factory=list, alias="references.reference"
-    )
+    references: list[dict[str, str]] = Field(default_factory=list)
     identifiers: list[BaseIdentifier] = Field(default_factory=list)
     related_identifiers: list[FullIdentifier] = Field(default_factory=list)
     rights: list[dict[str, str | dict[str, str]]] = Field(default_factory=list)
@@ -239,7 +237,8 @@ class MetadataSchema(BaseModel):
     def validate_references(cls, values):
         """Validate references."""
         tmp_out = process_grouped_fields(values, "references")
-        return [{k: v for k, v in ref.items() if v} for ref in tmp_out]
+        values["references"] = [{k: v for k, v in ref.items() if v} for ref in tmp_out]
+        return values
 
     @model_validator(mode="before")
     def load_rights(cls, values):
