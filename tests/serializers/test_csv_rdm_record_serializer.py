@@ -253,7 +253,7 @@ def test_record_transform_with_custom_fields(running_app, csv_rdm_record):
         {
             "award": {
                 "number": "100",
-                "title": "Some award",
+                "title": {"en": "Some award"},
             },
             "funder": {
                 "id": "00k4n6c96",

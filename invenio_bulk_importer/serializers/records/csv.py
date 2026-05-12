@@ -462,14 +462,14 @@ class MetadataSchema(BaseModel):
             if funder_name := f.get("funder.name"):
                 entry["funder"]["name"] = funder_name
 
-            if any(v is not None for k, v in f if k.startswith("award")):
+            if any(v is not None for k, v in f.items() if k.startswith("award")):
                 entry["award"] = {}
-            if award_id := f.get("award.id"):
-                entry["award"]["id"] = award_id
-            if award_title := f.get("award.title"):
-                entry["award"]["id"] = {"en": award_title}
-            if award_number := f.get("award.nunmber"):
-                entry["award"]["number"] = award_number
+                if award_id := f.get("award.id"):
+                    entry["award"]["id"] = award_id
+                if award_title := f.get("award.title"):
+                    entry["award"]["title"] = {"en": award_title}
+                if award_number := f.get("award.number"):
+                    entry["award"]["number"] = award_number
 
             output.append(entry)
         values["funding"] = output
