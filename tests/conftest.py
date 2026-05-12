@@ -25,6 +25,7 @@ from invenio_communities.communities.records.api import Community
 from invenio_communities.proxies import current_communities
 from invenio_pidstore.errors import PIDDoesNotExistError
 from invenio_rdm_records import config
+from invenio_rdm_records.contrib.imprint import IMPRINT_CUSTOM_FIELDS
 from invenio_rdm_records.proxies import current_rdm_records_service
 from invenio_rdm_records.proxies import current_rdm_records_service as record_service
 from invenio_rdm_records.records.api import RDMDraft
@@ -53,9 +54,6 @@ from invenio_bulk_importer.proxies import (
 from invenio_bulk_importer.record_types.rdm import RDMRecord
 from invenio_bulk_importer.records.api import ImporterRecord, ImporterTask
 from invenio_bulk_importer.serializers.records.csv import CSVRDMRecordSerializer
-from invenio_bulk_importer.serializers.records.examples.custom_fields.imprint import (
-    IMPRINT_CUSTOM_FIELDS,
-)
 
 from .fake_datacite_client import FakeDataCiteClient
 
@@ -123,7 +121,7 @@ def app_config(app_config, mock_datacite_client):
         "csv_rdm_record_serializer": [
             {
                 "field": "imprint:imprint",
-                "transformer": "invenio_bulk_importer.serializers.records.examples.transformers.imprint_transform",
+                "transformer": "invenio_bulk_importer.serializers.records.contrib.transformers.imprint_transform",
             }
         ]
     }
@@ -1136,7 +1134,6 @@ def validated_ir_data():
             "imprint.place": "Whoville",
             "locations.lat": "38.8951",
             "locations.lon": "-77.0364",
-            "imprint.volume": "3",
             "imprint.edition": "23rd",
             "locations.place": "Washington",
             "subjects.scheme": "MeSH",
@@ -1359,7 +1356,6 @@ def validated_ir_data():
                     "pages": "15-23",
                     "place": "Whoville",
                     "edition": "23rd",
-                    "volume": "3",
                 }
             },
             "access": {

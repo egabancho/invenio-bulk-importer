@@ -395,7 +395,6 @@ def test_verify_serialized_data_is_valid(rdm_record_instance):
                 "pages": "15-23",
                 "place": "Whoville",
                 "edition": "23rd",
-                "volume": "3",
             }
         },
         "access": {

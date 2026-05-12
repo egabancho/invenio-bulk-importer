@@ -32,7 +32,6 @@ def test_record_transform_with_custom_fields(running_app, csv_rdm_record):
             "isbn": "978-3-16-148410-0",
             "pages": "15-23",
             "place": "Whoville",
-            "volume": "3",
         },
     }
     # Metadata

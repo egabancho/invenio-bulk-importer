@@ -20,14 +20,14 @@ def imprint_transform(values) -> dict:
         "csv_rdm_record_serializer": [
             {
                 "field": "imprint:imprint",
-                "transformer": "invenio_bulk_importer.serializers.records.examples.transformers.imprint_transform""
+                "transformer": "invenio_bulk_importer.serializers.records.contrib.transformers.imprint_transform""
             }
         ]
     }
     ```
 
-    Args:
-        values (dict): The input dictionary containing imprint values.
+    :
+    :param values: The input dictionary containing imprint values.
     """
 
     def pop_or_update_key(dict_output: dict, key: str, value: str):
@@ -40,7 +40,7 @@ def imprint_transform(values) -> dict:
     # CSV columnname prefix
     KEY_PREFIX: str = "imprint"
     # Expected imprint columns to be prefixed with "imprint."
-    COLUMN_NAMES: list = ["isbn", "pages", "edition", "place", "volume", "series_name"]
+    COLUMN_NAMES: list = ["isbn", "pages", "edition", "place", "series_name"]
     # Get grouped fields
     temp_output = process_grouped_fields(values, KEY_PREFIX)
 
@@ -49,7 +49,6 @@ def imprint_transform(values) -> dict:
         "pages": None,
         "edition": None,
         "place": None,
-        "volume": None,
         "series_name": None,
     }
     for imprint in temp_output:

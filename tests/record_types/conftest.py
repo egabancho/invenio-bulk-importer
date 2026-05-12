@@ -192,7 +192,6 @@ def serialized_record():
                 "pages": "15-23",
                 "edition": "23rd",
                 "place": "Whoville",
-                "volume": "3",
             }
         },
         "metadata": {

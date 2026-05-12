@@ -64,7 +64,7 @@ def test_importer_task_with_create(
             data=BytesIO(f.read()),
         ) as response:
             assert response.status_code == 200
-            assert response.json["size"] == 44611
+            assert response.json["size"] == 44587
             assert response.json["mimetype"] == "text/csv"
 
     # Start Validation of csv file
