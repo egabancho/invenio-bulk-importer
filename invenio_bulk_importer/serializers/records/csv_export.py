@@ -74,6 +74,57 @@ class CSVRDMRecordExportSerializer(_CSVSerializer):
         """Checks if a field from the list is included in the key."""
         return any(field in key for field in fields)
 
+    def _flatten_list_dict_dict(self, value, parent_key=""):
+        """Override upstream to accumulate string-valued sub-keys per row.
+
+        The upstream implementation overwrites instead of appending in the
+        ``isinstance(v1, str)`` branch, so list entries whose only differing
+        fields are scalars (e.g. ``languages.id``, ``rights.title``) collapse
+        to the last entry's value. This override mirrors the accumulator
+        logic the dict branch already uses.
+
+        TODO: remove once
+        https://github.com/inveniosoftware/flask-resources/blob/master/flask_resources/serializers/csv.py
+        is fixed upstream.
+        """
+        combined_dict = {}
+        iterator = 0
+        keys = set()
+        for item in value:
+            current_keys = set()
+            for k1, v1 in item.items():
+                if isinstance(v1, str):
+                    new_key = f"{parent_key}.{k1}" if parent_key else k1
+                    if self.is_field_included(new_key):
+                        current_keys.add(new_key)
+                        if new_key in keys:
+                            combined_dict[new_key].append(v1)
+                        else:
+                            keys.add(new_key)
+                            combined_dict[new_key] = [""] * iterator + [v1]
+                else:
+                    if not isinstance(v1, dict):
+                        continue
+                    for k2, v2 in v1.items():
+                        if not isinstance(v2, str):
+                            continue
+                        new_key = (
+                            f"{parent_key}.{k1}.{k2}" if parent_key else f"{k1}.{k2}"
+                        )
+                        if self.is_field_included(new_key):
+                            current_keys.add(new_key)
+                            if new_key in keys:
+                                combined_dict[new_key].append(v2)
+                            else:
+                                keys.add(new_key)
+                                combined_dict[new_key] = [""] * iterator + [v2]
+
+            for missing_key in keys - current_keys:
+                combined_dict[missing_key].append("")
+            iterator += 1
+
+        return {key: "\n".join(values) for key, values in combined_dict.items()}
+
     def _preprocess_access(self, access):
         """Preprocess the access dictionary.
 
