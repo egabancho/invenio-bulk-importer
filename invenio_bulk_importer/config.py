@@ -13,9 +13,6 @@ from invenio_i18n import lazy_gettext as _
 from invenio_bulk_importer.record_types.rdm import RDMRecord
 from invenio_bulk_importer.serializers.records.csv import CSVRDMRecordSerializer
 
-# TODO: This is an example file. Remove it if your package does not use any
-# extra configuration variables.
-
 BULK_IMPORTER_DEFAULT_VALUE = "foobar"
 """Default value for the application."""
 
@@ -23,7 +20,44 @@ BULK_IMPORTER_BASE_TEMPLATE = "invenio_bulk_importer/base.html"
 """Default base template for the demo page."""
 
 BULK_IMPORTER_CUSTOM_FIELDS = {}
-"""Custom fields for the importer."""
+"""Custom fields wiring for the importer's serializers.
+
+Maps a serializer key (e.g. ``"csv_rdm_record_serializer"``) to a list of
+custom-field entries. Each entry describes how one custom field is built
+from CSV columns on import and, optionally, how it is written back out
+when exporting a record to CSV.
+
+Each entry is a dict with the following keys:
+
+:``field``: Dotted custom-field name as registered in the instance
+    (``"<namespace>:<name>"``, e.g. ``"imprint:imprint"``). This is the
+    key the value will be stored under in ``custom_fields`` on the
+    record.
+:``transformer``: Dotted import path to a callable that receives the raw
+    CSV row (``dict[str, str]``) and returns the value to store under
+    ``field``. Returning a falsy value skips the field for that row.
+:``exporter``: Optional. Dotted import path to a callable that receives
+    the record's value for ``field`` and returns a ``dict[str, str]`` of
+    CSV columns to emit when exporting. Pair with ``export_field`` so
+    the exported CSV round-trips back through the importer.
+:``export_field``: Optional. Column-name prefix used for the exported
+    columns (e.g. ``"imprint"`` produces ``imprint.isbn``,
+    ``imprint.pages``, ...). Must match the prefix the ``transformer``
+    expects on import.
+
+Example::
+
+    BULK_IMPORTER_CUSTOM_FIELDS = {
+        "csv_rdm_record_serializer": [
+            {
+                "field": "imprint:imprint",
+                "transformer": "invenio_bulk_importer.serializers.records.contrib.transformers.imprint_transform",
+                "exporter": "invenio_bulk_importer.serializers.records.contrib.transformers.imprint_export",
+                "export_field": "imprint",
+            }
+        ]
+    }
+"""
 
 BULK_IMPORTER_RECORD_TYPES = {
     "record": {

@@ -17,6 +17,9 @@ Here is an example:
 TODO
 """
 
+from functools import partial
+
+from flask import current_app
 from invenio_rdm_records.resources.serializers.csv import (
     CSVSerializer as _CSVSerializer,
 )
@@ -162,6 +165,30 @@ class CSVSerializer(_CSVSerializer):
         """Return the list of file names separated by a line break."""
         return "\n".join(files.get("entries", {}).keys())
 
+    def _process_custom_fields(self, custom_fields):
+        """Process custom fields.
+
+        It uses exporter definitions inside ``BULK_IMPORTER_CUSTOM_FIELDS`` or the default
+        ``_flatten`` method.
+        """
+        look_up = {
+            d["field"]: d
+            for d in current_app.config["BULK_IMPORTER_CUSTOM_FIELDS"].get(
+                "csv_rdm_record_serializer", []
+            )
+        }
+
+        output = {}
+        for field, value in custom_fields.items():
+            config = look_up[field]
+            field_prefix = config.get("export_field", field)
+            func = config.get(
+                "exporter", partial(self._flatten, parent_key=field_prefix)
+            )
+            output.update(func(value))
+
+        return output
+
     def process_dict(self, dictionary):
         """Overwrite base method to adapt to peculiar fields."""
         access = self._flatten(
@@ -183,7 +210,7 @@ class CSVSerializer(_CSVSerializer):
 
         files = self._process_files(dictionary.get("files", {}))
 
-        custom_fields = self._flatten(dictionary.get("custom_fields", {}))
+        custom_fields = self._process_custom_fields(dictionary.get("custom_fields", {}))
 
         return {
             "id": dictionary["id"],

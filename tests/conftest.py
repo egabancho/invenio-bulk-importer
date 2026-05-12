@@ -122,6 +122,7 @@ def app_config(app_config, mock_datacite_client):
             {
                 "field": "imprint:imprint",
                 "transformer": "invenio_bulk_importer.serializers.records.contrib.transformers.imprint_transform",
+                "export_field": "imprint",
             }
         ]
     }

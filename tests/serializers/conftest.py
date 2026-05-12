@@ -41,7 +41,14 @@ def full_record_dict():
             "status": "embargoed",
         },
         "created": "2023-11-14T18:30:55.738898+00:00",
-        "custom_fields": {},
+        "custom_fields": {
+            "imprint:imprint": {
+                "isbn": "978-3-16-148410-0",
+                "pages": "15-23",
+                "place": "Whoville",
+                "edition": "23rd",
+            }
+        },
         "deletion_status": {
             "is_deleted": False,
             "status": "P",
