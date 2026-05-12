@@ -6,13 +6,17 @@
 # it under the terms of the MIT License; see LICENSE file for more details.
 #
 
-"""Importer task links."""
+"""Importer task and record links."""
 
-from invenio_records_resources.services.base.links import Link
+from invenio_records_resources.services.base.links import EndpointLink
 
 
-class ILink(Link):
-    """Short cut for writing record links."""
+class ImporterEndpointLink(EndpointLink):
+    """Endpoint link for importer tasks and records.
+
+    Maps the route's ``pid_value`` to ``record.id`` and skips emission for
+    drafts that don't yet have a persistent ID assigned.
+    """
 
     @staticmethod
     def vars(record, vars):
@@ -20,4 +24,4 @@ class ILink(Link):
         # Some records don't have record.pid.pid_value yet (e.g. drafts)
         pid_value = getattr(record, "pid", None)
         if pid_value:
-            vars.update({"id": record.id})
+            vars.update({"pid_value": record.id})
