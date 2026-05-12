@@ -414,7 +414,7 @@ Export serialization
 --------------------
 
 The export serializer
-(:py:class:`~invenio_bulk_importer.serializers.records.csv_export.CSVSerializer`)
+(:py:class:`~invenio_bulk_importer.serializers.records.csv_export.CSVRDMRecordExportSerializer`)
 reverses the patterns above: nested dicts are flattened with ``.`` as the
 separator, lists are collapsed to newline-separated strings, and
 creator/contributor identifiers are re-emitted as

@@ -3,12 +3,12 @@
 import csv
 import io
 
-from invenio_bulk_importer.serializers.records.csv_export import CSVSerializer
+from invenio_bulk_importer.serializers.records.csv_export import CSVRDMRecordExportSerializer
 
 
 def test_record_csv_serializer(full_record_dict):
-    """Full record bulk importer csv ecport."""
-    serializer = CSVSerializer()
+    """Full record bulk importer csv export."""
+    serializer = CSVRDMRecordExportSerializer()
 
     serialized_data = serializer.serialize_object(full_record_dict)
     # Read the serialized data using the CSV module for convenience

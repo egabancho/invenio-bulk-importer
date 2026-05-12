@@ -10,8 +10,8 @@
 
 To use it, update the current serializers from
 `invenio_rdm_records.resources.config.record_serializers` adding an instance of
-`CSVSerializer` properly configured to your needs. The content type can be something like
-`application/vnd.inveniordm.v1.bulk+csv`.
+`CSVRDMRecordExportSerializer` properly configured to your needs. The content type can be
+something like `application/vnd.inveniordm.v1.bulk+csv`.
 
 Here is an example:
 TODO
@@ -20,16 +20,17 @@ TODO
 from functools import partial
 
 from flask import current_app
+from invenio_base.utils import obj_or_import_string
 from invenio_rdm_records.resources.serializers.csv import (
     CSVSerializer as _CSVSerializer,
 )
 
 
-class CSVSerializer(_CSVSerializer):
+class CSVRDMRecordExportSerializer(_CSVSerializer):
     """CSV serializer compatible with the bulk importer.
 
     It differs from the RDM one just in how it treats list fields. In this case it always
-    collapeses a set of fields into one column using newlines to separate values.
+    collapses a set of fields into one column using newlines to separate values.
     It also simplifies the path on some instances like `metadata.creators.person_or_org.type`
     is replaced by `creators.type`
 
@@ -78,7 +79,7 @@ class CSVSerializer(_CSVSerializer):
             access.pop("embargo", None)
         return access
 
-    def _parse_groupped_fields(self, values, main_key, value_key):
+    def _parse_grouped_fields(self, values, main_key, value_key):
         res = {}
         for d in values:
             key = f"{main_key}.{d['type']['id']}"
@@ -115,7 +116,7 @@ class CSVSerializer(_CSVSerializer):
 
             return res
 
-        def parse_loactions(features):
+        def parse_locations(features):
             res = []
             for f in features:
                 if geometry := f.pop("geometry", None):
@@ -123,7 +124,7 @@ class CSVSerializer(_CSVSerializer):
                         # TODO:: show we raise something or at least log a warning?
                         continue
                     f["lat"], f["lon"] = geometry["coordinates"]
-                f.pop("identifiers")  # FIXME: find a way to work around these
+                f.pop("identifiers", None)  # FIXME: find a way to work around these
                 res.append(f)
             return res
 
@@ -138,11 +139,11 @@ class CSVSerializer(_CSVSerializer):
             return res
 
         metadata["creators"] = parse_creatibutors(metadata["creators"])
-        if contriuborts := metadata.get("contributors"):
-            metadata["contributors"] = parse_creatibutors(contriuborts)
+        if contributors := metadata.get("contributors"):
+            metadata["contributors"] = parse_creatibutors(contributors)
 
         if features := metadata.pop("locations", {}).get("features"):
-            metadata["locations"] = parse_loactions(features)
+            metadata["locations"] = parse_locations(features)
 
         if subjects := metadata.pop("subjects", []):
             metadata.update(parse_subjects(subjects))
@@ -166,10 +167,20 @@ class CSVSerializer(_CSVSerializer):
         return "\n".join(files.get("entries", {}).keys())
 
     def _process_custom_fields(self, custom_fields):
-        """Process custom fields.
+        """Flatten custom fields into CSV columns.
 
-        It uses exporter definitions inside ``BULK_IMPORTER_CUSTOM_FIELDS`` or the default
-        ``_flatten`` method.
+        For each entry in ``custom_fields``, the matching configuration in
+        ``BULK_IMPORTER_CUSTOM_FIELDS['csv_rdm_record_serializer']`` is
+        consulted: if an ``exporter`` callable is registered it is invoked
+        on the value, otherwise the value is flattened with ``_flatten``
+        using ``export_field`` (or the field name itself) as the column
+        prefix. Fields without a matching configuration entry fall back to
+        ``_flatten`` with the raw field name as the prefix.
+
+        :param custom_fields: Mapping of custom-field names (e.g.
+            ``"imprint:imprint"``) to their stored values.
+        :return: A flat mapping of CSV column names to string values,
+            ready to be merged into the row dictionary.
         """
         look_up = {
             d["field"]: d
@@ -180,29 +191,44 @@ class CSVSerializer(_CSVSerializer):
 
         output = {}
         for field, value in custom_fields.items():
-            config = look_up[field]
+            config = look_up.get(field, {})
             field_prefix = config.get("export_field", field)
-            func = config.get(
-                "exporter", partial(self._flatten, parent_key=field_prefix)
+            func = obj_or_import_string(
+                config.get("exporter"),
+                default=partial(self._flatten, parent_key=field_prefix),
             )
             output.update(func(value))
 
         return output
 
     def process_dict(self, dictionary):
-        """Overwrite base method to adapt to peculiar fields."""
+        """Flatten an RDM record into a single CSV row.
+
+        Overrides the base flattener to handle the bulk-importer column
+        conventions: ``additional_descriptions`` and ``additional_titles``
+        collapse to discriminator columns (one per ``type[.lang]``),
+        ``access`` is preprocessed to drop status and inactive embargo
+        blocks, ``files`` becomes a newline-separated list of filenames,
+        and custom fields are dispatched through ``_process_custom_fields``.
+
+        :param dictionary: The record's ``to_dict()`` representation, as
+            produced by the RDM record service. Expected keys: ``id``,
+            ``access``, ``metadata``, ``files``, ``custom_fields``.
+        :return: A flat ``dict[str, str]`` mapping CSV column names to
+            their cell values for this record.
+        """
         access = self._flatten(
             self._preprocess_access(dictionary.get("access", {})),
             parent_key="access",
         )
         metadata = dictionary.get("metadata")
-        # Process special fields that are collapased into one column
-        additional_descriptions = self._parse_groupped_fields(
+        # Process special fields that are collapsed into one column
+        additional_descriptions = self._parse_grouped_fields(
             metadata.pop("additional_descriptions", []),
             "additional_descriptions",
             "description",
         )
-        additional_titles = self._parse_groupped_fields(
+        additional_titles = self._parse_grouped_fields(
             metadata.pop("additional_titles", []), "additional_titles", "title"
         )
         # Process the rest of the metadata
