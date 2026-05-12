@@ -1173,7 +1173,7 @@ def validated_ir_data():
             "contributors.identifiers.orcid": "0000-0002-1825-0097\n",
             "related_identifiers.identifier": "10.1080/10509585.2015.1092083\n2305.12345\n10.1080/10509585.2015.1092083/987\n10.1080/10509585.2015.1092033\n2305.12345v1\n10.5281/zenodo.10561542\n10.5281/zenodo.10561544\n10.5281/zenodo.10561546\nastro-ph/0703123v2\n10.5281/zenodo.1056154987",
             "additional_descriptions.abstract": "abstract",
-            "additional_descriptions.method.eng": "methods",
+            "additional_descriptions.methods.eng": "methods",
             "related_identifiers.relation_type.id": "ispartof\nispartof\nispartof\nissourceof\ncites\ncites\ncites\ncites\ncites\nispartof",
             "related_identifiers.resource_type.id": "publication-article\npublication-article\npublication-article\npublication-article\nimage-figure \nimage-figure \nimage-figure \nimage-figure \ndataset\npublication-article",
             "additional_titles.alternative-title.eng": "Something else",

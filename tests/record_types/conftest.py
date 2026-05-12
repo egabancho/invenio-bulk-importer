@@ -209,7 +209,7 @@ def serialized_record():
                 {"description": "abstract", "type": {"id": "abstract"}},
                 {
                     "description": "methods",
-                    "type": {"id": "method"},
+                    "type": {"id": "methods"},
                     "lang": {"id": "eng"},
                 },
                 {"description": "notes", "type": {"id": "notes"}},

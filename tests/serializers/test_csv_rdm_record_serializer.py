@@ -111,7 +111,7 @@ def test_record_transform_with_custom_fields(running_app, csv_rdm_record):
     assert metadata["publisher"] == "Ubiquity Press"
     assert metadata["additional_descriptions"] == [
         {"description": "abstract", "type": {"id": "abstract"}},
-        {"description": "methods", "type": {"id": "method"}, "lang": {"id": "eng"}},
+        {"description": "methods", "type": {"id": "methods"}, "lang": {"id": "eng"}},
         {"description": "notes", "type": {"id": "notes"}},
     ]
     assert metadata["subjects"] == [

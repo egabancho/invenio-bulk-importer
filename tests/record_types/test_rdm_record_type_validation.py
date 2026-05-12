@@ -330,7 +330,7 @@ def test_verify_serialized_data_is_valid(rdm_record_instance):
                 {"description": "abstract", "type": {"id": "abstract"}},
                 {
                     "description": "methods",
-                    "type": {"id": "method"},
+                    "type": {"id": "methods"},
                     "lang": {"id": "eng"},
                 },
                 {"description": "notes", "type": {"id": "notes"}},

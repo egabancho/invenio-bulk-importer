@@ -142,7 +142,7 @@ descriptions.
 
 **Known limitation.** A discriminator column cannot represent two entries
 with the same discriminator on the same record — e.g. two
-``additional_descriptions.method.eng`` entries. This has not come up in
+``additional_descriptions.methods.eng`` entries. This has not come up in
 practice; if it does, the field must migrate to the grouped pattern.
 
 Convention for new fields
@@ -393,7 +393,7 @@ tickets can be tracked against concrete sections.
 
 * **Repeated discriminators.** The discriminator pattern cannot represent
   two ``additional_descriptions`` entries that share the same type *and*
-  language (for example, two ``additional_descriptions.method.eng``).
+  language (for example, two ``additional_descriptions.methods.eng``).
   The second cell silently overwrites the first on read. If this case
   appears in real data, the field must migrate to the grouped pattern.
 
