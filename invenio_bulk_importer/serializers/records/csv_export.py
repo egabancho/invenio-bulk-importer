@@ -35,6 +35,7 @@ class CSVSerializer(_CSVSerializer):
     """
 
     def __init__(self, *args, **kwargs):
+        """Set base class default values."""
         super().__init__(*args, **kwargs)
         self.collapse_lists = True
         self.header_separator = "."
@@ -162,6 +163,7 @@ class CSVSerializer(_CSVSerializer):
         return "\n".join(files.get("entries", {}).keys())
 
     def process_dict(self, dictionary):
+        """Overwrite base method to adapt to peculiar fields."""
         access = self._flatten(
             self._preprocess_access(dictionary.get("access", {})),
             parent_key="access",
