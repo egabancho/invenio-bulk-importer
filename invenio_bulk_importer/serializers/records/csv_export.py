@@ -9,12 +9,17 @@
 """CSV serializer compatible with the bulk importer.
 
 To use it, update the current serializers from
-`invenio_rdm_records.resources.config.record_serializers` adding an instance of
-`CSVRDMRecordExportSerializer` properly configured to your needs. The content type can be
-something like `application/vnd.inveniordm.v1.bulk+csv`.
+``invenio_rdm_records.resources.config.record_serializers`` adding an instance of
+``CSVRDMRecordExportSerializer`` properly configured to your needs. The content type can be
+something like ``application/vnd.inveniordm.v1.bulk+csv``.
 
-Here is an example:
-TODO
+Example::
+
+    from invenio_rdm_records.resources.config import record_serializers
+
+    record_serializers['application/vnd.inveniordm.v1.bulk+csv'] = CSVRDMRecordExportSerializer()
+
+    RDM_RECORDS_SERIALIZERS = record_serializers
 """
 
 from functools import partial
@@ -121,7 +126,7 @@ class CSVRDMRecordExportSerializer(_CSVSerializer):
             for f in features:
                 if geometry := f.pop("geometry", None):
                     if geometry["type"] != "Point":
-                        # TODO:: show we raise something or at least log a warning?
+                        # TODO:: should we raise something or at least log a warning?
                         continue
                     f["lat"], f["lon"] = geometry["coordinates"]
                 f.pop("identifiers", None)  # FIXME: find a way to work around these
@@ -148,7 +153,7 @@ class CSVRDMRecordExportSerializer(_CSVSerializer):
         if subjects := metadata.pop("subjects", []):
             metadata.update(parse_subjects(subjects))
 
-        # Flatten funding.award.title, rights.decription|title
+        # Flatten funding.award.title, rights.description|title
         # This is an i18n string, but it is always set to 'en'
         for f in metadata.get("funding", []):
             if award_title := f.get("award", {}).get("title", {}).get("en"):
