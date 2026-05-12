@@ -331,6 +331,10 @@ nitpick_ignore = [
     # publish the class as ``pydantic.BaseModel``, so intersphinx does
     # not match.
     ("py:class", "pydantic.main.BaseModel"),
+    # Pydantic v2 attaches ``model_config: ClassVar[ConfigDict]`` to every
+    # BaseModel subclass and autodoc emits the bare name, which intersphinx
+    # cannot resolve against ``pydantic.ConfigDict``.
+    ("py:class", "ConfigDict"),
     # No public Sphinx documentation available.
     ("py:class", "flask_resources.serializers.csv.CSVSerializer"),
     # Internal base class, not part of the exposed API.

@@ -3,7 +3,9 @@
 import csv
 import io
 
-from invenio_bulk_importer.serializers.records.csv_export import CSVRDMRecordExportSerializer
+from invenio_bulk_importer.serializers.records.csv_export import (
+    CSVRDMRecordExportSerializer,
+)
 
 
 def test_record_csv_serializer(full_record_dict):
