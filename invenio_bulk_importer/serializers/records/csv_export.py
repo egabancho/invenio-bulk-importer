@@ -30,6 +30,8 @@ from invenio_rdm_records.resources.serializers.csv import (
     CSVSerializer as _CSVSerializer,
 )
 
+from .utils import flatten_grouped_fields_to_column_title
+
 
 class CSVRDMRecordExportSerializer(_CSVSerializer):
     """CSV serializer compatible with the bulk importer.
@@ -135,19 +137,17 @@ class CSVRDMRecordExportSerializer(_CSVSerializer):
             access.pop("embargo", None)
         return access
 
-    def _parse_grouped_fields(self, values, main_key, value_key):
-        res = {}
-        for d in values:
-            key = f"{main_key}.{d['type']['id']}"
-            if lang := d.get("lang"):
-                key = f"{key}.{lang['id']}"
-            res[key] = d[value_key]
-        return res
-
     def _preprocess_metadata(self, metadata):
         """Preprocess the metadata dictionary.
 
-        - Process creatibutors removing `person_or_org`.
+        - Flatten creatibutors by removing the ``person_or_org`` wrapper and
+          inlining identifiers as ``identifiers.<scheme>`` keys.
+        - Convert location features from GeoJSON ``Point`` geometries to
+          flat ``lat``/``lon`` keys.
+        - Split ``subjects`` into vocabulary-backed ``subjects`` and
+          free-text ``keywords``.
+        - Unwrap i18n ``{"en": ...}`` strings in funding award titles,
+          rights titles, and rights descriptions.
         """
 
         def parse_creatibutors(creatibutors):
@@ -279,12 +279,12 @@ class CSVRDMRecordExportSerializer(_CSVSerializer):
         )
         metadata = dictionary.get("metadata")
         # Process special fields that are collapsed into one column
-        additional_descriptions = self._parse_grouped_fields(
+        additional_descriptions = flatten_grouped_fields_to_column_title(
             metadata.pop("additional_descriptions", []),
             "additional_descriptions",
             "description",
         )
-        additional_titles = self._parse_grouped_fields(
+        additional_titles = flatten_grouped_fields_to_column_title(
             metadata.pop("additional_titles", []), "additional_titles", "title"
         )
         # Process the rest of the metadata

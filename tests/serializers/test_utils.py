@@ -8,7 +8,81 @@
 
 """Unit tests for serializer utilities."""
 
-from invenio_bulk_importer.serializers.records.utils import process_grouped_fields
+from invenio_bulk_importer.serializers.records.utils import (
+    flatten_grouped_fields_to_column_title,
+    process_grouped_fields,
+    process_grouped_fields_via_column_title,
+)
+
+
+def test_flatten_type_only():
+    """Entry without lang produces prefix.type key."""
+    entries = [{"description": "A short summary", "type": {"id": "abstract"}}]
+    assert flatten_grouped_fields_to_column_title(
+        entries, "additional_descriptions", "description"
+    ) == {"additional_descriptions.abstract": "A short summary"}
+
+
+def test_flatten_type_and_lang():
+    """Entry with lang produces prefix.type.lang key."""
+    entries = [
+        {
+            "description": "How we did it",
+            "type": {"id": "methods"},
+            "lang": {"id": "eng"},
+        }
+    ]
+    assert flatten_grouped_fields_to_column_title(
+        entries, "additional_descriptions", "description"
+    ) == {"additional_descriptions.methods.eng": "How we did it"}
+
+
+def test_flatten_multiple_entries():
+    """Multiple entries produce multiple flat keys."""
+    entries = [
+        {
+            "description": "How we did it",
+            "type": {"id": "methods"},
+            "lang": {"id": "eng"},
+        },
+        {"description": "A short summary", "type": {"id": "abstract"}},
+    ]
+    assert flatten_grouped_fields_to_column_title(
+        entries, "additional_descriptions", "description"
+    ) == {
+        "additional_descriptions.methods.eng": "How we did it",
+        "additional_descriptions.abstract": "A short summary",
+    }
+
+
+def test_flatten_empty_list():
+    """Empty input returns empty dict."""
+    assert (
+        flatten_grouped_fields_to_column_title(
+            [], "additional_descriptions", "description"
+        )
+        == {}
+    )
+
+
+def test_flatten_round_trip():
+    """Forward then reverse produces equivalent flat dict."""
+    original = {
+        "additional_descriptions.methods.eng": "How we did it",
+        "additional_descriptions.abstract": "A short summary",
+    }
+    process_grouped_fields_via_column_title(
+        original, "additional_descriptions", "description"
+    )
+    result = flatten_grouped_fields_to_column_title(
+        original["additional_descriptions"],
+        "additional_descriptions",
+        "description",
+    )
+    assert result == {
+        "additional_descriptions.methods.eng": "How we did it",
+        "additional_descriptions.abstract": "A short summary",
+    }
 
 
 def test_basic_transpose():

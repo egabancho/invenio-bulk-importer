@@ -61,6 +61,48 @@ def process_grouped_fields_via_column_title(
     return original
 
 
+def flatten_grouped_fields_to_column_title(
+    entries: list[dict], group_prefix: str, main_key: str
+) -> dict:
+    """Flatten structured entries back into dot-separated column titles.
+
+    This is the inverse of :func:`process_grouped_fields_via_column_title`.
+    Each entry in *entries* is expected to carry ``main_key``,
+    ``{"type": {"id": <type>}}``, and optionally ``{"lang": {"id": <lang>}}``.
+    The function reconstructs the flat ``<group_prefix>.<type>[.<lang>]`` keys.
+
+    Example::
+
+        entries = [
+            {"description": "How we did it",
+             "type": {"id": "methods"}, "lang": {"id": "eng"}},
+            {"description": "A short summary",
+             "type": {"id": "abstract"}},
+        ]
+        flatten_grouped_fields_to_column_title(
+            entries, "additional_descriptions", "description"
+        )
+        # {
+        #     "additional_descriptions.methods.eng": "How we did it",
+        #     "additional_descriptions.abstract":    "A short summary",
+        # }
+
+    :param entries: A list of structured dictionaries to flatten.
+    :param group_prefix: The column-name prefix identifying the group
+        (e.g. ``"additional_descriptions"`` or ``"additional_titles"``).
+    :param main_key: The dict key holding the cell value in each entry
+        (e.g. ``"description"`` or ``"title"``).
+    :return: A flat dictionary mapping reconstructed column titles to values.
+    """
+    result = {}
+    for entry in entries:
+        key = f"{group_prefix}.{entry['type']['id']}"
+        if lang := entry.get("lang"):
+            key = f"{key}.{lang['id']}"
+        result[key] = entry[main_key]
+    return result
+
+
 def process_grouped_fields(
     original: dict, prefix: str, drop_empty: bool = True
 ) -> list[dict]:
