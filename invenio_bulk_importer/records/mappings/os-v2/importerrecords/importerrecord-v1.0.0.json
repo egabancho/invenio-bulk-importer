@@ -28,11 +28,11 @@
         },
         "src_data": {
           "type": "object",
-          "dynamic": true
+          "enabled": false
         },
         "serializer_data": {
           "type": "object",
-          "dynamic": true
+          "enabled": false
         },
         "transformed_data": {
           "type": "object",
