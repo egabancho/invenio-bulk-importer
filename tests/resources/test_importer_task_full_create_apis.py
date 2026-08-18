@@ -84,8 +84,8 @@ def test_importer_task_with_create(
             data=BytesIO(f.read()),
         ) as response:
             assert response.status_code == 200
-            response.json["size"] == 44663
-            response.json["mimetype"] == "text/csv"
+            assert response.json["size"] == os.path.getsize(file_path)
+            assert response.json["mimetype"] == "text/csv"
 
     # Add Required file.
     res = admin_client.post(

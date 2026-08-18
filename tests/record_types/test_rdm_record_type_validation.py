@@ -1,13 +1,30 @@
 from copy import deepcopy
 
+from tests.fake_storage import (
+    GS_CONTENT,
+    GS_FILE,
+    GS_FILE_KEY,
+    GS_FILE_MISSING,
+    LOCAL_CONTENT,
+    LOCAL_FILE,
+    S3_CONTENT,
+    S3_FILE,
+    S3_FILE_KEY,
+    S3_FILE_MISSING,
+    URL_CONTENT,
+    URL_FILE,
+    URL_FILE_KEY,
+    URL_FILE_MISSING,
+)
+
 
 def test_files_verification(rdm_record_instance):
     """Test that files are verified correctly."""
     files = [
-        "README.rst",
-        "s3://service-rua/up/core/fixtures/key_help.json",
-        "gs://cloud-samples-data/storage/static-hosting/index.html",
-        "https://httpbin.org/json",
+        LOCAL_FILE,
+        S3_FILE,
+        GS_FILE,
+        URL_FILE,
     ]
 
     rdm_record_instance._verify_files_accessible(files)
@@ -16,35 +33,35 @@ def test_files_verification(rdm_record_instance):
     assert rdm_record_instance.errors == []
     assert rdm_record_instance._validated_files == [
         {
-            "key": "README.rst",
-            "full_path": "README.rst",
+            "key": LOCAL_FILE,
+            "full_path": LOCAL_FILE,
             "origin": "local",
-            "size": 1162,
+            "size": len(LOCAL_CONTENT),
         },
         {
-            "key": "key_help.json",
-            "full_path": "s3://service-rua/up/core/fixtures/key_help.json",
+            "key": S3_FILE_KEY,
+            "full_path": S3_FILE,
             "origin": "s3",
-            "size": 5446,
+            "size": len(S3_CONTENT),
         },
         {
-            "key": "index.html",
-            "full_path": "gs://cloud-samples-data/storage/static-hosting/index.html",
+            "key": GS_FILE_KEY,
+            "full_path": GS_FILE,
             "origin": "gs",
-            "size": 38,
+            "size": len(GS_CONTENT),
         },
         {
-            "key": "json",
-            "full_path": "https://httpbin.org/json",
+            "key": URL_FILE_KEY,
+            "full_path": URL_FILE,
             "origin": "url",
-            "size": 429,
+            "size": len(URL_CONTENT),
         },
     ]
 
 
 def test_files_verification_bucket_failures(rdm_record_instance):
     """Test that files are verified correctly."""
-    files = ["README1.rst"]
+    files = ["missing.txt"]
 
     rdm_record_instance._verify_files_accessible(files)
     # Verify files accessibility
@@ -53,30 +70,29 @@ def test_files_verification_bucket_failures(rdm_record_instance):
         dict(
             type="file_not_found",
             loc="files",
-            msg="File 'README1.rst' not found in invenio bucket.",
+            msg="File 'missing.txt' not found in invenio bucket.",
         )
     ]
 
 
 def test_files_verification_s3_failures(rdm_record_instance):
     """Test that files are verified correctly."""
-    files = ["s3://service-rua/up/core/fixtures/key_help_garbage.json"]
+    files = [S3_FILE_MISSING]
 
     rdm_record_instance._verify_files_accessible(files)
     # Verify files accessibility
     assert rdm_record_instance.is_successful is False
-    assert rdm_record_instance.errors == [
-        dict(
-            type="file_not_accessible",
-            loc="files",
-            msg="Error accessing S3 file 's3://service-rua/up/core/fixtures/key_help_garbage.json': An error occurred (403) when calling the HeadObject operation: Forbidden",
-        )
-    ]
+    # The provider's wording is not asserted: an anonymous read of a missing
+    # key is a 403 on real S3 but a 404 on the in-process backend.
+    (error,) = rdm_record_instance.errors
+    assert error["type"] == "file_not_accessible"
+    assert error["loc"] == "files"
+    assert error["msg"].startswith(f"Error accessing S3 file '{S3_FILE_MISSING}':")
 
 
 def test_files_verification_gs_failures(rdm_record_instance):
     """Test that files are verified correctly."""
-    files = ["gs://cloud-samples-data/wrong.pdf"]
+    files = [GS_FILE_MISSING]
 
     rdm_record_instance._verify_files_accessible(files)
     # Verify files accessibility
@@ -85,14 +101,14 @@ def test_files_verification_gs_failures(rdm_record_instance):
         dict(
             type="file_not_accessible",
             loc="files",
-            msg="Error accessing GCS file 'gs://cloud-samples-data/wrong.pdf' does not exist.",
+            msg=f"Error accessing GCS file '{GS_FILE_MISSING}' does not exist.",
         )
     ]
 
 
 def test_files_verification_url_failures(rdm_record_instance):
     """Test that files are verified correctly."""
-    files = ["https://httpbin.org/wrong"]
+    files = [URL_FILE_MISSING]
 
     rdm_record_instance._verify_files_accessible(files)
     # Verify files accessibility
@@ -101,7 +117,7 @@ def test_files_verification_url_failures(rdm_record_instance):
         dict(
             type="file_not_accessible",
             loc="files",
-            msg="Error accessing URL file 'https://httpbin.org/wrong' returned status code 404.",
+            msg=f"Error accessing URL file '{URL_FILE_MISSING}' returned status code 404.",
         )
     ]
 

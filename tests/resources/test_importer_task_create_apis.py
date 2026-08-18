@@ -2,6 +2,7 @@ import os
 from io import BytesIO
 
 from invenio_bulk_importer.records.api import ImporterRecord, ImporterTask
+from tests.fake_storage import URL_CONTENT, URL_FILE_KEY
 
 
 def test_importer_task_with_create(
@@ -64,7 +65,7 @@ def test_importer_task_with_create(
             data=BytesIO(f.read()),
         ) as response:
             assert response.status_code == 200
-            assert response.json["size"] == 44587
+            assert response.json["size"] == os.path.getsize(file_path)
             assert response.json["mimetype"] == "text/csv"
 
     # Start Validation of csv file
@@ -144,7 +145,9 @@ def test_importer_task_with_create(
         )
         assert response.json["versions"]["index"] == 1
         assert response.json["status"] == "published"
-        assert response.json["files"]["entries"]["json"]["size"] == 429
+        assert response.json["files"]["entries"][URL_FILE_KEY]["size"] == len(
+            URL_CONTENT
+        )
         assert (
             response.json["parent"]["communities"]["entries"][0]["id"] == community.id
         )

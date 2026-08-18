@@ -1,4 +1,5 @@
 from invenio_bulk_importer.records.api import ImporterRecord, ImporterTask
+from tests.fake_storage import URL_CONTENT, URL_FILE_KEY
 
 
 def test_importer_task_with_file_update_new_version(
@@ -87,7 +88,9 @@ def test_importer_task_with_file_update_new_version(
         assert response.json["versions"]["index"] == 2
         assert response.json["revision_id"] == 4
         assert response.json["status"] == "published"
-        assert response.json["files"]["entries"]["json"]["size"] == 429
+        assert response.json["files"]["entries"][URL_FILE_KEY]["size"] == len(
+            URL_CONTENT
+        )
         assert (
             response.json["parent"]["communities"]["entries"][0]["id"] == community.id
         )

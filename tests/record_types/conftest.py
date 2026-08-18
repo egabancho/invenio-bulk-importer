@@ -8,6 +8,8 @@
 
 """Fixtures for testing Invenio RDM Record resources."""
 
+from io import BytesIO
+
 import pytest
 from invenio_files_rest.models import Bucket, ObjectVersion
 
@@ -15,6 +17,7 @@ from invenio_bulk_importer.proxies import (
     current_importer_records_service as importer_records_service,
 )
 from invenio_bulk_importer.record_types.rdm import RDMRecord as BulkImportRDMRecord
+from tests.fake_storage import GS_FILE, LOCAL_CONTENT, LOCAL_FILE, S3_FILE, URL_FILE
 
 
 def _generate_rdm_record(
@@ -35,14 +38,13 @@ def _generate_rdm_record(
 def bucket_with_object_version(db, location):
     """Create a bucket and objectversion."""
     b1 = Bucket.create(location=location)
-    with open("README.rst", "rb") as fp:
-        ObjectVersion.create(b1, "README.rst", stream=fp)
+    ObjectVersion.create(b1, LOCAL_FILE, stream=BytesIO(LOCAL_CONTENT))
     db.session.commit()
 
     # Check if the file exists in the bucket
     object_versions = ObjectVersion.get_by_bucket(b1.id)
     assert object_versions.count() == 1
-    assert object_versions[0].key == "README.rst"
+    assert object_versions[0].key == LOCAL_FILE
 
     return b1
 
@@ -176,10 +178,10 @@ def serialized_record():
         "default_community": "test-community",
         "communities": ["test-community"],
         "files": [
-            "README.rst",
-            "s3://service-rua/up/core/fixtures/key_help.json",
-            "gs://cloud-samples-data/storage/static-hosting/index.html",
-            "https://httpbin.org/json",
+            LOCAL_FILE,
+            S3_FILE,
+            GS_FILE,
+            URL_FILE,
         ],
         "access": {
             "record": "public",

@@ -11,10 +11,14 @@
 from collections import namedtuple
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import urlparse
 
+import boto3
 import idutils
 import pytest
+import responses
 from flask_principal import AnonymousIdentity
+from google.cloud import storage
 from invenio_access.models import ActionRoles
 from invenio_access.permissions import any_user as any_user_need
 from invenio_access.permissions import superuser_access, system_identity
@@ -46,6 +50,7 @@ from invenio_vocabularies.contrib.funders.api import Funder
 from invenio_vocabularies.contrib.subjects.api import Subject
 from invenio_vocabularies.proxies import current_service as vocabulary_service
 from invenio_vocabularies.records.api import Vocabulary
+from moto import mock_aws
 from werkzeug.local import LocalProxy
 
 from invenio_bulk_importer.proxies import (
@@ -56,6 +61,20 @@ from invenio_bulk_importer.records.api import ImporterRecord, ImporterTask
 from invenio_bulk_importer.serializers.records.csv import CSVRDMRecordSerializer
 
 from .fake_datacite_client import FakeDataCiteClient
+from .fake_storage import (
+    GS_CONTENT,
+    GS_FILE,
+    GS_FILE_KEY,
+    S3_BUCKET,
+    S3_CONTENT,
+    S3_FILE,
+    S3_FILE_KEY,
+    URL_CONTENT,
+    URL_FILE,
+    URL_FILE_KEY,
+    URL_FILE_MISSING,
+    FakeGCSClient,
+)
 
 
 def _(x):
@@ -67,6 +86,58 @@ def _(x):
 def mock_datacite_client():
     """Mock DataCite client."""
     return FakeDataCiteClient
+
+
+@pytest.fixture(scope="function", autouse=True)
+def fake_file_origins():
+    """Serve the importer's remote file origins in-process.
+
+    HTTP is served by ``responses``, S3 by ``moto``, and GCS by
+    :class:`tests.fake_storage.FakeGCSClient`. Autouse because the CSV
+    fixtures reference remote files from every suite, and it doubles as a
+    network guard: a request to an unregistered host raises
+    ``ConnectionError`` rather than leaving the process.
+
+    :return: The active ``responses`` mock, so a test can register extra
+        URLs of its own.
+    """
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        # moto needs a region and credentials to resolve the endpoint.
+        monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+        monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
+        monkeypatch.setattr(
+            storage.Client,
+            "create_anonymous_client",
+            staticmethod(lambda: FakeGCSClient()),
+        )
+        with mock_aws():
+            s3 = boto3.client("s3", region_name="us-east-1")
+            s3.create_bucket(Bucket=S3_BUCKET)
+            # public-read so the unsigned client may read it, mirroring the
+            # publicly readable buckets the importer is pointed at.
+            s3.put_object(
+                Bucket=S3_BUCKET,
+                Key=urlparse(S3_FILE).path.lstrip("/"),
+                Body=S3_CONTENT,
+                ACL="public-read",
+            )
+            with responses.RequestsMock(
+                assert_all_requests_are_fired=False
+            ) as mock_http:
+                mock_http.add(
+                    responses.HEAD,
+                    URL_FILE,
+                    headers={"Content-Length": str(len(URL_CONTENT))},
+                )
+                mock_http.add(responses.GET, URL_FILE, body=URL_CONTENT)
+                mock_http.add(responses.HEAD, URL_FILE_MISSING, status=404)
+                mock_http.add(responses.GET, URL_FILE_MISSING, status=404)
+                yield mock_http
+    finally:
+        monkeypatch.undo()
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -1120,7 +1191,7 @@ def validated_ir_data():
             "title": "Micraster ernsti Schlüter 2024, sp. nov.",
             "version": "1.0.1",
             "keywords": "custom",
-            "filenames": "https://httpbin.org/json\n",
+            "filenames": f"{URL_FILE}\n",
             "publisher": "Ubiquity Press",
             "rights.id": "cc0-1.0\n\ncc0-4.0",
             "communities": "test-community",
@@ -1370,7 +1441,7 @@ def validated_ir_data():
             },
         },
         "community_uuids": None,
-        "record_files": ["https://httpbin.org/json"],
+        "record_files": [URL_FILE],
         "validated_record_files": [
             {
                 "key": "article.txt",
@@ -1379,22 +1450,22 @@ def validated_ir_data():
                 "size": 17,
             },
             {
-                "key": "key_help.json",
-                "full_path": "s3://service-rua/up/core/fixtures/key_help.json",
+                "key": S3_FILE_KEY,
+                "full_path": S3_FILE,
                 "origin": "s3",
-                "size": 5446,
+                "size": len(S3_CONTENT),
             },
             {
-                "key": "13c3fea3-ac2f-4c9c-a71f-b59956f3ac10.pdf",
-                "full_path": "gs://cloud-samples-data/storage/static-hosting/index.html",
+                "key": GS_FILE_KEY,
+                "full_path": GS_FILE,
                 "origin": "gs",
-                "size": 38,
+                "size": len(GS_CONTENT),
             },
             {
-                "key": "json",
-                "full_path": "https://httpbin.org/json",
+                "key": URL_FILE_KEY,
+                "full_path": URL_FILE,
                 "origin": "url",
-                "size": 429,
+                "size": len(URL_CONTENT),
             },
         ],
     }
