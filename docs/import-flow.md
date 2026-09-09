@@ -55,13 +55,22 @@ flowchart TD
 `valid_importer_file_data` is the **fan-out point**: it is the only place that
 decides how many importer records a metadata file produces.
 
+It reads the file a *group* at a time. A group is the set of records that have to
+be imported together so identifiers can be resolved between them — a book and its
+chapters, say. `Serializer.load_groups()` defaults to one group per object, so a
+format describing one record per entry (CSV) yields groups of one and behaves
+exactly as it always has. A group of one carries no `group_id`; where the records
+of a task are grouped for import, `ImporterTask.get_record_groups()` falls back to
+the record's own id, so each stays a group of its own.
+
 ```mermaid
 flowchart TD
     S["valid_importer_file_data(task_id)"] --> T["_get_importer_task_classes()<br/>reads BULK_IMPORTER_RECORD_TYPES →<br/>(task, record_type_cls, serializer)"]
     T --> U["tasks_service.read_metadata_file()<br/>→ file stream"]
-    U --> V["serializer.load(stream)<br/>CSVSerializer: csv.DictReader<br/><b>yields one dict per row</b>"]
-    V --> W["for each entry:<br/>records_service.create(<br/>&nbsp;&nbsp;src_data=entry,<br/>&nbsp;&nbsp;status=created,<br/>&nbsp;&nbsp;task_id=task.id)"]
-    W --> X["validate_serialized_data.delay(record_id, task_id)"]
+    U --> V["serializer.load_groups(stream)<br/>default: one group per object<br/>CSVSerializer: csv.DictReader<br/><b>yields one GroupEntry per row</b>"]
+    V --> W["for each group:<br/>group_id = uuid4() if len(group) > 1 else None"]
+    W --> W2["for each entry in the group:<br/>records_service.create(<br/>&nbsp;&nbsp;src_data=entry.data,<br/>&nbsp;&nbsp;group_id / group_key / group_role,<br/>&nbsp;&nbsp;group_position / group_relations,<br/>&nbsp;&nbsp;status=created, task_id=task.id)"]
+    W2 --> X["validate_serialized_data.delay(record_id, task_id)"]
     V --> Y["finalize_importer_task.delay(task_id, 'validate')"]
 
     X --> V1["serializer.transform(src_data, mode)<br/>pydantic CSVRecordSchema / DeleteCSVRecordSchema<br/>→ (serializer_data, errors)"]
