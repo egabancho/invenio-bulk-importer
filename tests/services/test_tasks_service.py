@@ -1,4 +1,6 @@
+from copy import deepcopy
 from io import BytesIO
+from unittest import mock
 from uuid import uuid4
 
 import pytest
@@ -13,9 +15,15 @@ from invenio_bulk_importer.proxies import (
 )
 from invenio_bulk_importer.records.api import ImporterRecord, ImporterTask
 from invenio_bulk_importer.records.models import ImporterRecordModel, ImporterTaskModel
+from invenio_bulk_importer.serializers.records.csv import CSVRDMRecordSerializer
 from invenio_bulk_importer.services.tasks import (
+    FINALIZE_PUBLISH_RETRY_POLICY,
     _mark_record_failed,
+    _refresh_importer_task,
     finalize_importer_task,
+    run_transformed_record,
+    run_transformed_records,
+    valid_importer_file_data,
     validate_serialized_data,
 )
 
@@ -303,3 +311,241 @@ def test_cannot_revalidate_while_a_run_is_in_progress(
 
     # The records of the run in progress were left alone.
     assert len(task._record.get_records()) == 3
+
+
+class UnreadableCSVSerializer(CSVRDMRecordSerializer):
+    """CSV serializer whose file breaks off after its first row."""
+
+    def load(self, stream, **kwargs):
+        """Yield the first row, then fail as a truncated file would.
+
+        :param stream: IO
+        """
+        rows = super().load(stream, **kwargs)
+        yield next(rows)
+        raise ValueError("unreadable metadata file")
+
+
+def test_unreadable_metadata_file_marks_the_task_damaged(
+    app,
+    db,
+    user_admin,
+    task,
+    community,
+    set_app_config_fn_scoped,
+    caplog,
+    search_clear,
+):
+    """A file that fails part-way ends the run damaged, not stuck validating.
+
+    Left on ``validating``, the task could never be validated again, since
+    starting a validation is refused while one looks to be running.
+    """
+    record_types = deepcopy(app.config["BULK_IMPORTER_RECORD_TYPES"])
+    record_types["record"]["serializers"]["csv"] = UnreadableCSVSerializer
+    set_app_config_fn_scoped({"BULK_IMPORTER_RECORD_TYPES": record_types})
+    data = tasks_service.get_current_task_data(task._record)
+    data["status"] = "validating"
+    tasks_service.update(user_admin.identity, data=data, id_=task.id)
+
+    with pytest.raises(ValueError):
+        valid_importer_file_data(task_id_str=str(task.id))
+
+    refreshed = tasks_service.read(user_admin.identity, task.id).data
+    assert refreshed["status"] == "damaged"
+    assert "could not be read to the end" in caplog.text
+
+
+def test_damaged_task_can_be_validated_again(
+    app, db, user_admin, task, community, search_clear
+):
+    """A damaged task is not running, so validating it again is allowed."""
+    tasks_service.start_validation(user_admin.identity, task.id)
+    data = tasks_service.get_current_task_data(task._record)
+    data["status"] = "damaged"
+    tasks_service.update(user_admin.identity, data=data, id_=task.id)
+
+    # The result item is built before the unit of work commits, so it shows
+    # the status the run just moved into.
+    result = tasks_service.start_validation(user_admin.identity, task.id)
+
+    assert result.data["status"] == "validating"
+    assert len(task._record.get_records()) == 3
+
+
+def test_failed_import_start_does_not_leave_the_task_importing(
+    app, db, user_admin, task, community, search_clear
+):
+    """An import that fails before queuing anything settles at once.
+
+    Nothing is running, so the run is not followed: the validated records
+    would read as pending, and the finaliser would wait out its poll limit
+    only to mark a loadable task damaged.
+    """
+    tasks_service.start_validation(user_admin.identity, task.id)
+    data = tasks_service.get_current_task_data(task._record)
+    data["status"] = "importing"
+    tasks_service.update(user_admin.identity, data=data, id_=task.id)
+
+    with (
+        mock.patch.object(
+            ImporterTask, "get_records", side_effect=RuntimeError("database gone")
+        ),
+        mock.patch.object(finalize_importer_task, "apply_async") as finalize,
+    ):
+        with pytest.raises(RuntimeError):
+            run_transformed_records(task_id_str=str(task.id))
+
+    finalize.assert_not_called()
+    refreshed = tasks_service.read(user_admin.identity, task.id).data
+    assert refreshed["status"] == "validated with failures"
+
+
+def test_failed_import_start_follows_the_records_already_queued(
+    app, db, user_admin, task, community, search_clear
+):
+    """An import that fails part-way is followed, not ended.
+
+    Records already queued may still be importing, so the task must stay
+    out of reach of a re-validation until the finaliser settles it.
+    """
+    tasks_service.start_validation(user_admin.identity, task.id)
+    data = tasks_service.get_current_task_data(task._record)
+    data["status"] = "importing"
+    tasks_service.update(user_admin.identity, data=data, id_=task.id)
+
+    with (
+        mock.patch.object(
+            run_transformed_record,
+            "delay",
+            side_effect=[None, RuntimeError("broker gone")],
+        ),
+        mock.patch.object(finalize_importer_task, "apply_async") as finalize,
+    ):
+        with pytest.raises(RuntimeError):
+            run_transformed_records(task_id_str=str(task.id))
+
+    finalize.assert_called_once_with(
+        args=(str(task.id),),
+        kwargs=dict(phase="import"),
+        retry=True,
+        retry_policy=FINALIZE_PUBLISH_RETRY_POLICY,
+    )
+    refreshed = tasks_service.read(user_admin.identity, task.id).data
+    assert refreshed["status"] == "importing"
+
+
+def test_failed_first_publish_is_followed_as_if_queued(
+    app, db, user_admin, task, community, search_clear
+):
+    """A publish that raises may still have reached the broker.
+
+    Settling the task at once would leave it loadable while that record may
+    be importing, so the run is followed instead.
+    """
+    tasks_service.start_validation(user_admin.identity, task.id)
+    data = tasks_service.get_current_task_data(task._record)
+    data["status"] = "importing"
+    tasks_service.update(user_admin.identity, data=data, id_=task.id)
+
+    with (
+        mock.patch.object(
+            run_transformed_record, "delay", side_effect=RuntimeError("broker gone")
+        ),
+        mock.patch.object(finalize_importer_task, "apply_async") as finalize,
+    ):
+        with pytest.raises(RuntimeError):
+            run_transformed_records(task_id_str=str(task.id))
+
+    finalize.assert_called_once()
+    refreshed = tasks_service.read(user_admin.identity, task.id).data
+    assert refreshed["status"] == "importing"
+
+
+def test_unscheduled_finaliser_leaves_the_task_importing(
+    app, db, user_admin, task, community, caplog, search_clear
+):
+    """Without a finaliser, a partly queued import is not ended early.
+
+    Its queued records may still be importing, so it is not marked damaged;
+    the log says it needs settling by hand.
+    """
+    tasks_service.start_validation(user_admin.identity, task.id)
+    data = tasks_service.get_current_task_data(task._record)
+    data["status"] = "importing"
+    tasks_service.update(user_admin.identity, data=data, id_=task.id)
+
+    with (
+        mock.patch.object(
+            run_transformed_record,
+            "delay",
+            side_effect=[None, RuntimeError("broker gone")],
+        ),
+        mock.patch.object(
+            finalize_importer_task,
+            "apply_async",
+            side_effect=RuntimeError("broker gone"),
+        ),
+    ):
+        with pytest.raises(RuntimeError):
+            run_transformed_records(task_id_str=str(task.id))
+
+    refreshed = tasks_service.read(user_admin.identity, task.id).data
+    assert refreshed["status"] == "importing"
+    assert "until its status is set by hand" in caplog.text
+
+
+def test_unloadable_serializer_still_marks_the_task_damaged(
+    app, db, user_admin, task, community, set_app_config_fn_scoped, search_clear
+):
+    """Ending a failed run does not depend on the classes that made it fail."""
+    record_types = deepcopy(app.config["BULK_IMPORTER_RECORD_TYPES"])
+    record_types["record"]["serializers"][
+        "csv"
+    ] = "invenio_bulk_importer.missing:Serializer"
+    set_app_config_fn_scoped({"BULK_IMPORTER_RECORD_TYPES": record_types})
+    data = tasks_service.get_current_task_data(task._record)
+    data["status"] = "validating"
+    tasks_service.update(user_admin.identity, data=data, id_=task.id)
+
+    with pytest.raises(ImportError):
+        valid_importer_file_data(task_id_str=str(task.id))
+
+    refreshed = tasks_service.read(user_admin.identity, task.id).data
+    assert refreshed["status"] == "damaged"
+
+
+def test_followed_import_stays_importing_while_records_are_pending(
+    app, db, user_admin, task, community, search_clear
+):
+    """A followed import does not read as settled before its records finish.
+
+    Calculated from records none of which has been imported yet, the status
+    would read as validated, and the task could be loaded or validated again
+    under the workers still importing.
+    """
+    tasks_service.start_validation(user_admin.identity, task.id)
+
+    _refresh_importer_task(str(task.id), phase="import")
+
+    refreshed = tasks_service.read(user_admin.identity, task.id).data
+    assert refreshed["status"] == "importing"
+
+
+def test_status_refresh_keeps_a_run_in_progress_running(
+    app, db, user_admin, task, community, search_clear
+):
+    """Refreshing the status by hand does not settle a run mid-way.
+
+    Its records still pending, an import would read as validated, and could
+    be loaded or validated again under the workers still importing.
+    """
+    tasks_service.start_validation(user_admin.identity, task.id)
+    data = tasks_service.get_current_task_data(task._record)
+    data["status"] = "importing"
+    tasks_service.update(user_admin.identity, data=data, id_=task.id)
+
+    tasks_service.status_update(user_admin.identity, task.id)
+
+    refreshed = tasks_service.read(user_admin.identity, task.id).data
+    assert refreshed["status"] == "importing"

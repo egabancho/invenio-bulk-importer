@@ -38,6 +38,24 @@ PENDING_RECORD_STATES = {
 }
 """Record states still awaiting work, per phase."""
 
+RUNNING_TASK_STATES = {
+    VALIDATE_PHASE: ImporterTaskState.VALIDATING.value,
+    IMPORT_PHASE: ImporterTaskState.IMPORTING.value,
+}
+"""Status to keep a task on while its records are pending, per phase."""
+
+RUNNING_TASK_PHASES = {state: phase for phase, state in RUNNING_TASK_STATES.items()}
+"""Phase a task is in, per running status."""
+
+FINALIZE_PUBLISH_RETRY_POLICY = dict(
+    max_retries=10, interval_start=1, interval_step=2, interval_max=5
+)
+"""Publish retry for the finaliser of a failed import, about 40 seconds long.
+
+Long enough to ride out a broker restart. Without it the run is not
+followed, and the task stays ``importing``.
+"""
+
 FAILED_RECORD_STATES = {
     VALIDATE_PHASE: ImporterRecordState.VALIDATION_FAILED.value,
     IMPORT_PHASE: ImporterRecordState.IMPORT_FAILED.value,
@@ -88,30 +106,28 @@ def _get_importer_task_classes(task_id_str: str):
     return task, record_type_cls, serializer_cls()
 
 
-def _abandon_importer_task(task_id_str: str, phase: str) -> None:
-    """Mark a task damaged after its records stopped making progress.
+def _abandon_importer_task(task_id_str: str, reason: str) -> None:
+    """Mark a task damaged when its run ended without finishing.
 
-    Reached only when records are still pending long past any reasonable run
-    time, which means the workers holding them are gone. The calculated
-    status would say ``validating`` or ``importing``, so it is overridden
-    here: the run is over, and it did not finish.
+    Otherwise the task keeps the status its run started with, ``validating``
+    or ``importing``, which reads as "still working" and blocks starting it
+    again. ``damaged`` is terminal, so the task can be validated anew.
+
+    Only the task itself is resolved, not its record type and serializer, so
+    a task whose configured classes no longer load can still be ended.
 
     :param task_id_str: Importer task id.
-    :param phase: Either ``validate`` or ``import``.
+    :param reason: Why the run did not finish, for the log.
     """
     try:
-        task, _, _ = _get_importer_task_classes(task_id_str)
+        task = _get_record_from_uuid_str(task_id_str, tasks_service)
         task_data = tasks_service.get_current_task_data(task)
         task_data["status"] = ImporterTaskState.DAMAGED.value
         tasks_service.update(system_identity, data=task_data, id_=task.id)
         # The reason only goes to the log: the task schema has no message
         # field, and its mapping is strict.
         current_app.logger.warning(
-            "Importer task %s marked damaged: records were still pending in "
-            "the %s run after %s checks, so the workers holding them are gone.",
-            task_id_str,
-            phase,
-            current_app.config["BULK_IMPORTER_FINALIZE_MAX_POLLS"],
+            "Importer task %s marked damaged: %s", task_id_str, reason
         )
     except Exception:
         current_app.logger.exception(
@@ -156,6 +172,97 @@ def _mark_record_failed(record_id_str: str, phase: str, exc: Exception) -> None:
         )
 
 
+def _has_pending_records(records_status: dict, phase: str) -> bool:
+    """Tell whether any record still awaits the work of a phase.
+
+    :param records_status: The record counts per state.
+    :param phase: Either ``validate`` or ``import``.
+    :return: Whether records are still pending.
+    """
+    return any(records_status.get(state) for state in PENDING_RECORD_STATES[phase])
+
+
+def task_status_from_records(records_status: dict, phase: str | None = None) -> str:
+    """Get the status of a task from the counts of its records.
+
+    While a run is in progress and its records are still pending, the task
+    stays on the phase's running status. The status calculated from records
+    not yet reached reads as settled instead: an import none of whose records
+    has finished reads ``validated``, which lets it be loaded or validated
+    again under the workers still importing.
+
+    :param records_status: The record counts per state.
+    :param phase: The run in progress, if any.
+    :return: The task status.
+    """
+    if phase and _has_pending_records(records_status, phase):
+        return RUNNING_TASK_STATES[phase]
+    return TaskStateCalculator.calculate_task_state(records_status)
+
+
+def _refresh_importer_task(task_id_str: str, phase: str | None = None) -> dict:
+    """Rewrite the task status and record counts from its records.
+
+    :param task_id_str: Importer task id.
+    :param phase: The run being followed, if any.
+    :return: The record counts per state.
+    """
+    task = _get_record_from_uuid_str(task_id_str, tasks_service)
+    records_status = task.get_importer_record_info()
+    task_data = tasks_service.get_current_task_data(task)
+    task_data["records_status"] = records_status
+    task_data["status"] = task_status_from_records(records_status, phase)
+    tasks_service.update(system_identity, data=task_data, id_=task.id)
+    return records_status
+
+
+def _settle_failed_import(task_id_str: str, queued: int) -> None:
+    """Leave a task whose import failed to start in a status it can leave.
+
+    With records queued, imports may still be running, so the run is followed
+    rather than ended: the records never queued keep it pending until the
+    finaliser gives up and marks it damaged. With nothing queued, nothing is
+    running and following would only wait out the poll limit, so the status
+    is refreshed once instead, which settles it back on its validated one.
+
+    Best effort by design: it runs while an exception is already in flight,
+    and must not replace it with one of its own.
+
+    :param task_id_str: Importer task id.
+    :param queued: How many records a publish was attempted for, delivered
+        or not, before the failure.
+    """
+    try:
+        if queued:
+            # The broker is the likeliest cause of the failure, so the
+            # finaliser is given time for it to come back.
+            finalize_importer_task.apply_async(
+                args=(task_id_str,),
+                kwargs=dict(phase=IMPORT_PHASE),
+                retry=True,
+                retry_policy=FINALIZE_PUBLISH_RETRY_POLICY,
+            )
+        else:
+            _refresh_importer_task(task_id_str)
+    except Exception:
+        if queued:
+            current_app.logger.exception(
+                "Could not schedule the finaliser of importer task %s. It "
+                "stays importing until its status is set by hand, once its "
+                "queued records have finished.",
+                task_id_str,
+            )
+            return
+        current_app.logger.exception(
+            "Could not settle the failed import of importer task %s.", task_id_str
+        )
+        # Nothing is running, so ending the task cannot race a worker.
+        _abandon_importer_task(
+            task_id_str,
+            "its import failed to start and its status could not be refreshed.",
+        )
+
+
 @shared_task(ignore_result=True)
 def run_transformed_record(record_id_str: str, task_id_str: str):
     """Run the transformed importer record for a given record ID and task ID to create a new record."""
@@ -192,10 +299,14 @@ def run_transformed_record(record_id_str: str, task_id_str: str):
 @shared_task(ignore_result=True)
 def run_transformed_records(task_id_str: str):
     """Load importer metadata for a record type using a specific serializer."""
+    queued = 0
     try:
         task, _, _ = _get_importer_task_classes(task_id_str)
         # Validate entries from the metadata file
         for record_id_str in task.get_records():
+            # Counted before publishing: a publish that raises may still have
+            # reached the broker, so the record may run all the same.
+            queued += 1
             run_transformed_record.delay(
                 record_id_str=record_id_str,
                 task_id_str=task_id_str,
@@ -206,7 +317,7 @@ def run_transformed_records(task_id_str: str):
         current_app.logger.exception(
             "Error starting the import of task %s.", task_id_str
         )
-        # Handle error appropriately, e.g., log it or update task status
+        _settle_failed_import(task_id_str, queued)
         raise
 
 
@@ -300,7 +411,15 @@ def valid_importer_file_data(task_id_str: str):
         current_app.logger.exception(
             "Error reading the metadata file of task %s.", task_id_str
         )
-        # Handle error appropriately, e.g., log it or update task status
+        # The file was not read to the end, so the records created so far do
+        # not describe it. Validating again clears them, which `damaged`
+        # allows and `validating` does not. Validation jobs already queued
+        # may still run against those records. That is harmless: validating
+        # creates nothing in the repository, and a job whose record a new
+        # validation purged only fails and logs.
+        _abandon_importer_task(
+            task_id_str, "its metadata file could not be read to the end."
+        )
         raise
 
 
@@ -319,18 +438,12 @@ def finalize_importer_task(self, task_id_str: str, phase: str = VALIDATE_PHASE):
     :param phase: Which run to follow, ``validate`` or ``import``.
     """
     try:
-        task, _, _ = _get_importer_task_classes(task_id_str)
-        # Get all records for this task
-        records_status = task.get_importer_record_info()
-        # Update the task with the total number of records processed
-        task_data = tasks_service.get_current_task_data(task)
-        task_data["records_status"] = records_status
-        # Calculate the task state based on the records status
-        task_data["status"] = TaskStateCalculator.calculate_task_state(records_status)
-        tasks_service.update(system_identity, data=task_data, id_=task.id)
-        pending = any(
-            records_status.get(state) for state in PENDING_RECORD_STATES[phase]
+        # Under eager execution the run is not followed, see below, so the
+        # status must not be held on a running one.
+        records_status = _refresh_importer_task(
+            task_id_str, phase=None if self.request.is_eager else phase
         )
+        pending = _has_pending_records(records_status, phase)
     except Exception:
         current_app.logger.exception(
             "Error refreshing the status of task %s.", task_id_str
@@ -352,4 +465,9 @@ def finalize_importer_task(self, task_id_str: str, phase: str = VALIDATE_PHASE):
         # Records are still pending well past any reasonable run time, so the
         # workers holding them are gone. Leaving the calculated status would
         # read as "still working" forever, so end on a terminal one instead.
-        _abandon_importer_task(task_id_str, phase)
+        _abandon_importer_task(
+            task_id_str,
+            f"records were still pending in the {phase} run after "
+            f"{current_app.config['BULK_IMPORTER_FINALIZE_MAX_POLLS']} checks, "
+            "so the workers holding them are gone.",
+        )

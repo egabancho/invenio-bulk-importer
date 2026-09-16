@@ -20,14 +20,13 @@ from invenio_records_resources.services.uow import (
 )
 
 from invenio_bulk_importer.errors import ImporterTaskNoReadyError
-from invenio_bulk_importer.services.states import (
-    ImporterTaskState,
-    TaskStateCalculator,
-)
+from invenio_bulk_importer.services.states import ImporterTaskState
 
 from .tasks import (
+    RUNNING_TASK_PHASES,
     run_transformed_record,
     run_transformed_records,
+    task_status_from_records,
     valid_importer_file_data,
 )
 
@@ -193,9 +192,12 @@ class ImporterTaskService(BulkImporterMixin, RecordService):
         # Update the task with the total number of records processed
         task_data = self.get_current_task_data(task)
         task_data["records_status"] = records_status
-        # Determine Status update of task based on record statuses.
-        task_status = TaskStateCalculator.calculate_task_state(records_status)
-        task_data["status"] = task_status
+        # Determine Status update of task based on record statuses. A run in
+        # progress keeps its running status while its records are pending, or
+        # the task could be loaded or validated again under its workers.
+        task_data["status"] = task_status_from_records(
+            records_status, phase=RUNNING_TASK_PHASES.get(task["status"])
+        )
         # Update the task metadata
         self._update_task_metadata(identity, task, task_data, uow=uow)
 
