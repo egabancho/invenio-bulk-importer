@@ -8,7 +8,6 @@
 
 """Celery tasks for the Invenio Bulk Importer."""
 
-import traceback
 import uuid
 from copy import deepcopy
 
@@ -65,7 +64,7 @@ def _get_record_from_uuid_str(id_str, service):
         record_id = uuid.UUID(id_str)
         return service.record_cls.pid.resolve(record_id)
     except Exception as e:
-        print(f"Error resolving record from UUID {id_str}: {e}")
+        current_app.logger.warning("Could not resolve record %s: %s", id_str, e)
         return None
 
 
@@ -178,12 +177,11 @@ def run_transformed_record(record_id_str: str, task_id_str: str):
             system_identity, data=importer_record_dict, id_=record.id
         )
     except Exception as e:
-        traceback.print_exc()
-        print(
-            f"Error run_transformed_record for record/task: {record_id_str}/{task_id_str}:- {e}"
+        current_app.logger.exception(
+            "Error importing record %s of task %s.", record_id_str, task_id_str
         )
         _mark_record_failed(record_id_str, IMPORT_PHASE, e)
-        raise e
+        raise
 
 
 @shared_task(ignore_result=True)
@@ -199,11 +197,12 @@ def run_transformed_records(task_id_str: str):
             )
         # Follow the run, refreshing the task status until every record is done.
         finalize_importer_task.delay(task_id_str, phase=IMPORT_PHASE)
-    except Exception as e:
-        traceback.print_exc()
-        print(f"Error run_transformed_records for task: {task_id_str}:- {e}")
+    except Exception:
+        current_app.logger.exception(
+            "Error starting the import of task %s.", task_id_str
+        )
         # Handle error appropriately, e.g., log it or update task status
-        raise e
+        raise
 
 
 @shared_task(ignore_result=True)
@@ -252,12 +251,11 @@ def validate_serialized_data(record_id_str: str, task_id_str: str):
             system_identity, data=importer_record_dict, id_=record.id
         )
     except Exception as e:
-        traceback.print_exc()
-        print(
-            f"Error validate_serialized_data for record/task: {record_id_str}/{task_id_str}:- {e}"
+        current_app.logger.exception(
+            "Error validating record %s of task %s.", record_id_str, task_id_str
         )
         _mark_record_failed(record_id_str, VALIDATE_PHASE, e)
-        raise e
+        raise
 
 
 @shared_task(ignore_result=True)
@@ -283,11 +281,12 @@ def valid_importer_file_data(task_id_str: str):
             )
         # Follow the run, refreshing the task status until every record is done.
         finalize_importer_task.delay(task_id_str, phase=VALIDATE_PHASE)
-    except Exception as e:
-        traceback.print_exc()
-        print(f"Error loading importer file for task: {task_id_str}:- {e}")
+    except Exception:
+        current_app.logger.exception(
+            "Error reading the metadata file of task %s.", task_id_str
+        )
         # Handle error appropriately, e.g., log it or update task status
-        raise e
+        raise
 
 
 @shared_task(bind=True, ignore_result=True)
@@ -317,10 +316,11 @@ def finalize_importer_task(self, task_id_str: str, phase: str = VALIDATE_PHASE):
         pending = any(
             records_status.get(state) for state in PENDING_RECORD_STATES[phase]
         )
-    except Exception as e:
-        traceback.print_exc()
-        print(f"Error finalizing importer task: {e}")
-        raise e
+    except Exception:
+        current_app.logger.exception(
+            "Error refreshing the status of task %s.", task_id_str
+        )
+        raise
 
     if not pending or self.request.is_eager:
         # Under eager execution the per-record tasks have already run inline,

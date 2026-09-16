@@ -8,9 +8,6 @@ from invenio_rdm_records.records.models import RDMDraftMetadata, RDMRecordMetada
 from invenio_rdm_records.services.errors import ReviewNotFoundError
 from invenio_rdm_records.services.pids import providers
 
-from invenio_bulk_importer.proxies import (
-    current_importer_tasks_service as tasks_service,
-)
 from tests.fake_storage import URL_FILE, URL_FILE_KEY
 
 

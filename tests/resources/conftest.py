@@ -14,7 +14,6 @@ from copy import deepcopy
 from io import BytesIO, StringIO
 
 import pytest
-from flask_security import login_user
 from invenio_accounts.testutils import login_user_via_session
 
 from invenio_bulk_importer.proxies import (
